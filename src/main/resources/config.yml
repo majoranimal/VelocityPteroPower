@@ -31,8 +31,8 @@ pingTimeout: 1000
 shutdownRetries: 3
 
 # How long to wait before retrying to shut down the server (in seconds)
-# default: 30
-shutdownRetryDelay: 30
+# default: 300
+shutdownRetryDelay: 300
 
 # How long to wait before shutting down the server if no player joined the server(in seconds)
 # default: 300

@@ -79,13 +79,26 @@ public class ServerSwitchListener {
      */
     @Subscribe
     public void onDisconnect(DisconnectEvent event) {
-        Optional<ServerConnection> serverConnection = event.getPlayer().getCurrentServer();
-        if (serverConnection.isPresent()) {
-            String serverName = serverConnection.get().getServerInfo().getName();
+        Player player = event.getPlayer();
+
+        if (!player.getCurrentServer().isPresent()) {
+            return;
+        }
+
+        RegisteredServer server = player.getCurrentServer().get().getServer();
+        String serverName = server.getServerInfo().getName();
+
+        // Only proceed if we have valid server info in our map
+        if (plugin.getServerInfoMap().containsKey(serverName)) {
             PteroServerInfo serverInfo = plugin.getServerInfoMap().get(serverName);
-            if (serverInfo != null && apiClient.isServerEmpty(serverName)) {
-                ScheduledTask shutdownTask = plugin.scheduleServerShutdown(serverName, serverInfo.getServerId(), serverInfo.getTimeout());
-                scheduledShutdowns.put(serverName, shutdownTask);
+
+            // Check if server is empty before scheduling shutdown
+            if (plugin.getAPIClient().isServerEmpty(serverName)) {
+                plugin.scheduleServerShutdown(
+                    serverName,
+                    serverInfo.getServerId(),
+                    serverInfo.getTimeout()
+                );
             }
         }
     }

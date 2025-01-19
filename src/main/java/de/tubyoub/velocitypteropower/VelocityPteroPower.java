@@ -292,6 +292,7 @@ public class VelocityPteroPower {
         playerCooldowns.put(player.getUniqueId(), currentTime);
         startingServers.add(serverName);
         apiClient.powerServer(serverInfo.getServerId(), "start");
+        checkInitialServerActivity(serverName, serverInfo.getServerId());
         player.sendMessage(
                 this.getPluginPrefix()
                 .append(Component.text(messagesManager.getMessage("starting-server")
@@ -299,7 +300,7 @@ public class VelocityPteroPower {
         event.setResult(ServerPreConnectEvent.ServerResult.denied());
 
         proxyServer.getScheduler().buildTask(this, () -> {
-            if (apiClient.isServerOnline(serverName) && this.canMakeRequest()) {
+            if (apiClient.isServerOnline(serverName) && this.canMakeRequest() && player.isActive()) {
                 connectPlayer(player, serverName);
             } else {
                 proxyServer.getScheduler().buildTask(this, () -> checkServerAndConnectPlayer(player, serverName)).schedule();
@@ -380,6 +381,18 @@ public class VelocityPteroPower {
             .append(Component.text(messagesManager.getMessage("prefix"), TextColor.color(66,135,245)))
             .append(Component.text("] ", NamedTextColor.WHITE));
     }
+
+    private void checkInitialServerActivity(String serverName, String serverId) {
+        proxyServer.getScheduler().buildTask(this, () -> {
+            if (apiClient.isServerOnline(serverId) && apiClient.isServerEmpty(serverName)) {
+                apiClient.powerServer(serverId, "stop");
+                logger.info(messagesManager.getMessage("idle-shutdown")
+                        .replace("%server%", serverName));
+                startingServers.remove(serverName);
+            }
+        }).delay(configurationManager.getIdleStartShutdownTime(), TimeUnit.SECONDS).schedule();
+    }
+
 
     /**
      * This method reloads the configuration for the VelocityPteroPower plugin.

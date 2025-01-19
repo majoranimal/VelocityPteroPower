@@ -27,3 +27,4 @@ shutdown-cancelled: "Shutdown cancelled for server: %server%. Players are presen
 shutdown-success: "Server %server% has been successfully shutdown."
 shutdown-failed: "Failed to shutdown server: %server%. After %retry%."
 server-still-online-retying: "Server %server% is still online. Retrying shutdown. (attempt: %retry%/%maxRetries%)."
+idle-shutdown: "Server %server% has been shutdown because no one joined it"
