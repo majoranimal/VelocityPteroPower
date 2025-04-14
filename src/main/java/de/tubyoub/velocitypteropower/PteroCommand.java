@@ -112,7 +112,7 @@ public class PteroCommand implements SimpleCommand {
                     sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("no-permission"), TextColor.color(255, 0, 0))));
                 }
                 break;
-            case "stopIdle":
+            case "stopidle", "stopIdle":
                 if (sender.hasPermission("ptero.stopIdle")) {
                     stopIdleServers(sender);
                 } else {
@@ -160,7 +160,6 @@ public class PteroCommand implements SimpleCommand {
                 displayHelp(sender);
         }
     }
-
     private void stopIdleServers(CommandSource sender) {
         Map<String, PteroServerInfo> serverInfoMap = plugin.getServerInfoMap();
             if (serverInfoMap.isEmpty()) {
@@ -336,7 +335,7 @@ public class PteroCommand implements SimpleCommand {
                 }
             }
         }
-        return null;
+        return Collections.emptyList();
     }
 
     private void displayHelp(CommandSource sender) {
