@@ -37,18 +37,12 @@ import dev.dejvokep.boostedyaml.settings.loader.LoaderSettings;
 import dev.dejvokep.boostedyaml.settings.updater.MergeRule;
 import dev.dejvokep.boostedyaml.settings.updater.UpdaterSettings;
 import org.slf4j.Logger;
-import org.spongepowered.configurate.CommentedConfigurationNode;
-import org.spongepowered.configurate.yaml.YamlConfigurationLoader;
+import org.slf4j.event.Level;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 /**
  * This class manages the configuration for the VelocityPteroPower plugin.
@@ -56,6 +50,12 @@ import java.util.Objects;
  */
 
 public class ConfigurationManager {
+
+    public enum ServerCheckMethod {
+        VELOCITY_PING,
+        PANEL_API
+    }
+
     private Path dataDirectory;
     private YamlDocument config;
     private String panelUrl;
@@ -64,13 +64,16 @@ public class ConfigurationManager {
     private PanelType panel;
     private boolean checkUpdate;
     private boolean printRateLimit;
-    private int startupJoinDelay;
+    private boolean serverNotFoundMessage;
+    private int loggerLevel;
     private int apiThreads;
     private int pingTimeout;
     private int shutdownRetryDelay;
     private int shutdownRetries;
     private int idleStartShutdownTime;
     private int playerCommandCooldown;
+    private int startupInitialCheckDelay;
+    private ServerCheckMethod serverCheckMethod;
     private List<String> stopAllIgnoreList;
     private final VelocityPteroPower plugin;
     private final Logger logger;
@@ -92,43 +95,44 @@ public class ConfigurationManager {
      * It reads the configuration values and stores them in instance variables.
      */
     public void loadConfig(){
-        try {
+        try{
             config = YamlDocument.create(new File(this.dataDirectory.toFile(), "config.yml"),
-                    Objects.requireNonNull(getClass().getResourceAsStream("/config.yml")),
-                    GeneralSettings.DEFAULT,
-                    LoaderSettings.builder().setAutoUpdate(true).build(),
-                    DumperSettings.DEFAULT,
-                    UpdaterSettings.builder().setVersioning(new BasicVersioning("fileversion"))
-                            .setOptionSorting(UpdaterSettings.OptionSorting.SORT_BY_DEFAULTS)
-                            .setMergeRule(MergeRule.MAPPINGS, true)
-                            .setMergeRule(MergeRule.MAPPING_AT_SECTION, true)
-                            .setMergeRule(MergeRule.SECTION_AT_MAPPING, true)
-                            .setKeepAll(true)
-                            .build());
+                                Objects.requireNonNull(getClass().getResourceAsStream("/config.yml")),
+                                GeneralSettings.DEFAULT,
+                                LoaderSettings.builder().setAutoUpdate(true).build(),
+                                DumperSettings.DEFAULT,
+                                UpdaterSettings.builder().setVersioning(new BasicVersioning("fileversion"))
+                                        .setOptionSorting(UpdaterSettings.OptionSorting.SORT_BY_DEFAULTS)
+                                        .setMergeRule(MergeRule.MAPPINGS, true)
+                                        .setMergeRule(MergeRule.MAPPING_AT_SECTION, false)
+                                        .setMergeRule(MergeRule.SECTION_AT_MAPPING, false)
+                                        .addIgnoredRoute("5", "servers", '.')
+                                        .addIgnoredRoute("6", "servers", '.')
+                                        .addIgnoredRoute("7", "servers", '.')
+                                        .build());
 
 
             checkUpdate = (boolean) config.get("checkUpdate", true);
             printRateLimit = (boolean) config.get("printRateLimit", false);
+            serverNotFoundMessage = (boolean) config.get("serverNotFoundMessage", false);
+            loggerLevel = (int) config.get("loggerLevel", 20);
             pingTimeout = (int) config.get("pingTimeout", 1000);
             apiThreads = (int) config.get("apiThreads", 10);
             shutdownRetryDelay = (int) config.get("shutdownRetryDelay", 30);
             shutdownRetries = (int) config.get("shutdownRetries", 3);
             idleStartShutdownTime = (int) config.get("idleStartShutdownTime", 300);
             playerCommandCooldown = (int) config.get("playerCommandCooldown", 10);
-            limboServer = (String) config.get("limboServer");
+            startupInitialCheckDelay = (int) config.get("startupInitialCheckDelay", 10);
+            limboServer = (String) config.get("limboServer", "changeMe");
             stopAllIgnoreList = config.getStringList("stopIdleIgnore");
-            Section startupJoinSection = config.getSection("startupJoin");
-            Map<String, Object> startupJoin = new HashMap<>();
-            if (startupJoinSection != null) {
-                for (Object keyObj : startupJoinSection.getKeys()) {
-                    String key = (String) keyObj;
-                    Route route = Route.fromString(key);
-                    Object value = startupJoinSection.get(route);
-                    startupJoin.put(key, value);
-                }
-            }
 
-            startupJoinDelay = (int) startupJoin.get("joinDelay");
+            String checkMethodStr = config.getString("serverStatusCheckMethod", "VELOCITY_PING");
+            try {
+                this.serverCheckMethod = ServerCheckMethod.valueOf(checkMethodStr.toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                logger.error("Invalid serverStatusCheckMethod '{}' in config. Using default 'VELOCITY_PING'.", checkMethodStr);
+                this.serverCheckMethod = ServerCheckMethod.VELOCITY_PING;
+            }
 
             Section pterodactylSection = config.getSection("pterodactyl");
             Map<String, Object> pterodactyl = new HashMap<>();
@@ -185,7 +189,8 @@ public class ConfigurationManager {
                         String id = (String) serverInfoData.get("id");
                         if (!Objects.equals(id, "1234abcd")){
                             int timeout = (int) serverInfoData.getOrDefault("timeout", -1);
-                            serverInfoMap.put(key, new PteroServerInfo(id, timeout, getStartupJoinDelay()));
+                            int startupJoinDelay = (int) serverInfoData.getOrDefault("startupJoinDelay", 10);
+                            serverInfoMap.put(key, new PteroServerInfo(id, timeout, startupJoinDelay));
                             logger.info("Registered Server: " + id + " successfully");
                         }
                     } catch (Exception e) {
@@ -197,16 +202,30 @@ public class ConfigurationManager {
         }
 
     private PanelType detectPanelType(String apiKey) {
+        if (apiKey == null) {
+            return PanelType.pterodactyl; // Plugin will be disabled
+        }
         if (apiKey.startsWith("ptlc_")) {
             return PanelType.pterodactyl;
         } else if (apiKey.startsWith("peli_")) {
             return PanelType.pelican;
         } else {
-            // Default to Pterodactyl if the prefix is not recognized
+            logger.warn(
+                "Unrecognized API Key prefix, defaulting to Pterodactyl."
+            );
             return PanelType.pterodactyl;
         }
     }
 
+    /**
+     * Checks if the plugin has a valid API key configuration.
+     *
+     * @return true if the API key is valid, false otherwise
+     */
+    public boolean hasValidApiKey() {
+        return apiKey != null && !apiKey.isEmpty() &&
+               (apiKey.startsWith("ptlc_") || apiKey.startsWith("peli_"));
+    }
 
     /**
      * This method returns the map of server names to PteroServerInfo objects.
@@ -243,18 +262,21 @@ public class ConfigurationManager {
     public boolean isCheckUpdate() {
         return checkUpdate;
     }
-
-    /**
-     * This method returns the startup join delay.
-     *
-     * @return the startup join delay
-     */
-    public int getStartupJoinDelay() {
-        return startupJoinDelay;
+    public boolean isServerNotFoundMessage() {
+        return serverNotFoundMessage;
     }
 
     public PanelType getPanelType(){
         return panel;
+    }
+
+    public Level getLoggerLevel() {
+        try {
+            return Level.intToLevel(loggerLevel);
+        } catch (IllegalArgumentException e) {
+            logger.warn("Invalid logger level: {}. Defaulting to INFO.", loggerLevel);
+            return Level.INFO;
+        }
     }
 
     public int getApiThreads() {
@@ -284,12 +306,23 @@ public class ConfigurationManager {
         return idleStartShutdownTime;
     }
 
+    public  int getStartupInitialCheckDelay(){
+        return startupInitialCheckDelay;
+    }
+
     public String getLimboServerName() {
+        if (limboServer == "changeMe") {
+            return null;
+        }
         return limboServer;
     }
 
     public List<String> getStopAllIgnoreList() {
         return stopAllIgnoreList;
+    }
+
+    public ServerCheckMethod getServerCheckMethod() {
+        return serverCheckMethod;
     }
 
 }

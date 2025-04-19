@@ -121,9 +121,11 @@ public class ServerSwitchListener {
         if (previousServerConnection.isPresent()) {
             String serverName = previousServerConnection.get().getServerInfo().getName();
             PteroServerInfo serverInfo = plugin.getServerInfoMap().get(serverName);
-            if (serverInfo != null && apiClient.isServerEmpty(serverInfo.getServerId())) {
+            if (serverInfo != null && apiClient.isServerEmpty(serverName)) {
                 ScheduledTask shutdownTask = plugin.scheduleServerShutdown(serverName, serverInfo.getServerId(), serverInfo.getTimeout());
-                scheduledShutdowns.put(serverName, shutdownTask);
+                if (shutdownTask != null) {
+                    scheduledShutdowns.put(serverName, shutdownTask);
+                }
             }
         }
 

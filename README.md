@@ -1,6 +1,7 @@
 # VelocityPteroPower
 ![Static Badge](https://img.shields.io/badge/Velocity-green) <br>
-[![forthebadge](https://forthebadge.com/images/badges/works-on-my-machine.svg)](https://forthebadge.com)
+[![forthebadge](https://forthebadge.com/images/badges/works-on-my-machine.svg)](https://forthebadge.com) <br> <br>
+<a href="https://www.buymeacoffee.com/tubyoub" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>
 
 <p align="center">
     <a href="https://discord.pluginz.dev">
@@ -60,14 +61,6 @@ printRateLimit: true
 # How long the ping to the server lasts, to check if its is online, until it times out (in milliseconds)
 # default: 1000
 pingTimeout: 1000
-
-# This is used to check the server status to transfer players after the server starts
-startupJoin:
-  
-  # Once the server is pingable, wait the specified amount of seconds before sending the player to the server
-  # This is useful to wait for plugins like Luckperms to fully load
-  # If you set it to 0, the player will be connected as soon as the server is pingable
-  joinDelay: 5
 
 # Pterodactyl configuration
 pterodactyl:

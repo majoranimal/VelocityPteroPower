@@ -26,6 +26,7 @@ package de.tubyoub.velocitypteropower;
 
 import com.google.inject.Inject;
 import com.velocitypowered.api.command.CommandManager;
+import com.velocitypowered.api.event.PostOrder;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
@@ -54,6 +55,7 @@ import java.net.InetSocketAddress;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -122,8 +124,21 @@ public class VelocityPteroPower {
         logger.info(MiniMessage.miniMessage().deserialize("<#4287f5> \\   Y   /  |     ___/|     ___/"));
         logger.info(MiniMessage.miniMessage().deserialize("<#4287f5>  \\     /   |    |    |    |"+ "<#00ff77>         VelocityPteroPower <#6b6c6e>v" + version));
         logger.info(MiniMessage.miniMessage().deserialize("<#4287f5>   \\___/    |____|tero|____|ower" + "<#A9A9A9>     Running with Blackmagic on Velocity"));
+
         configurationManager.loadConfig();
         messagesManager.loadMessages();
+
+        // Check if API key is valid
+        if (!configurationManager.hasValidApiKey()) {
+            logger.error("=================================================");
+            logger.error("VelocityPteroPower initialization failed!");
+            logger.error("No valid API key found in configuration.");
+            logger.error("Please add a valid API key to the config.yml file.");
+            logger.error("Plugin will be disabled.");
+            logger.error("=================================================");
+            return;
+        }
+
         if (configurationManager.getPanelType() == PanelType.pelican) {
             logger.info("detected the pelican panel");
             this.apiClient = new PelicanAPIClient(this);
@@ -142,7 +157,7 @@ public class VelocityPteroPower {
             versionInfo = VersionChecker.isNewVersionAvailable(version, project);
             if (versionInfo.isNewVersionAvailable) {
                 switch  (versionInfo.urgency) {
-                    case CRITICAL:
+                    case CRITICAL, HIGH:
                         this.getLogger().warn("--- Important Update --- ");
                         this.getLogger().warn("There is a new critical update for VelocityPteroPower available");
                         this.getLogger().warn("please update NOW");
@@ -150,24 +165,10 @@ public class VelocityPteroPower {
                         this.getLogger().warn("backup your config");
                         this.getLogger().warn("---");
                         break;
-                    case HIGH:
-                        this.getLogger().warn("--- Important Update --- ");
-                        this.getLogger().warn("There is a new critical update for VelocityPteroPower available");
-                        this.getLogger().warn("please update NOW");
-                        this.getLogger().warn("https://modrinth.com/plugin/velocitypteropower/version/" + versionInfo.latestVersion);
-                        this.getLogger().warn("backup your config");
-                        this.getLogger().warn("---");
-                        break;
-                    case NORMAL:
+                    case NORMAL, LOW, NONE:
                         this.getLogger().warn("There is a new update for VelocityPteroPower available");
                         this.getLogger().warn("https://modrinth.com/plugin/velocitypteropower/version/" + versionInfo.latestVersion);
                         this.getLogger().warn("backup your config");
-                        break;
-                    case LOW:
-                        // beta update urgency currently not needed
-                        break;
-                    case NONE:
-                        // alpha update urgency currently not needed
                         break;
                 }
             } else {
@@ -176,6 +177,7 @@ public class VelocityPteroPower {
         } else {
             this.getLogger().info("You have automatic checks for new updates disabled. Enable them in the config to stay up to date");
         }
+        logger.isEnabledForLevel(configurationManager.getLoggerLevel());
         logger.info("VelocityPteroPower succesfully loaded");
     }
 
@@ -194,7 +196,7 @@ public class VelocityPteroPower {
                     .replace("%server%", serverName)
                     .replace("%timeout%", String.valueOf(timeout)));
             return proxyServer.getScheduler().buildTask(this, () -> {
-                if (apiClient.isServerEmpty(serverName)) {
+                if (canMakeRequest() && apiClient.isServerEmpty(serverName)) {
                     apiClient.powerServer(serverID, "stop");
                     logger.info(messagesManager.getMessage("server-shutting-down")
                             .replace("%server%", serverName));
@@ -208,10 +210,11 @@ public class VelocityPteroPower {
 
         private void scheduleShutdownCheck(String serverName, String serverID) {
             proxyServer.getScheduler().buildTask(this, () -> {
-                if (apiClient.isServerOnline(serverID)) {
+                if (canMakeRequest() && apiClient.isServerOnline(serverName,serverID)) {
                     int retryCount = retryCounts.getOrDefault(serverName, 0) + 1;
+                    // Check emptiness again before retrying stop command
                     if (retryCount <= configurationManager.getShutdownRetryDelay()) {
-                        if (apiClient.isServerEmpty(serverName)){
+                        if (canMakeRequest() && apiClient.isServerEmpty(serverName)){
                             retryCounts.put(serverName, retryCount);
                             logger.warn(messagesManager.getMessage("server-still-online-retying")
                                     .replace("%server%", serverName)
@@ -219,7 +222,7 @@ public class VelocityPteroPower {
                                     .replace("%maxRetries%", String.valueOf(configurationManager.getShutdownRetries())));
                             apiClient.powerServer(serverID, "stop");
                             scheduleShutdownCheck(serverName, serverID);
-                        } else {
+                        } else { // Server is no longer empty, cancel shutdown
                             logger.info(messagesManager.getMessage("shutdown-cancelled")
                                     .replace("%server%", serverName));
                             retryCounts.remove(serverName);
@@ -232,8 +235,12 @@ public class VelocityPteroPower {
                     }
                 } else {
                     retryCounts.remove(serverName);
-                    logger.info(messagesManager.getMessage("shutdown-success")
-                            .replace("%server%", serverName));
+                    if (!canMakeRequest()) {
+                        logger.warn("Could not confirm shutdown status for {} due to rate limit.", serverName);
+                    } else {
+                        logger.info(messagesManager.getMessage("shutdown-success") // Assume success if offline
+                                .replace("%server%", serverName));
+                    }
                 }
             }).delay(configurationManager.getShutdownRetryDelay(), TimeUnit.SECONDS).schedule();
         }
@@ -246,50 +253,29 @@ public class VelocityPteroPower {
      *
      * @param event the server pre-connect event
      */
-    @Subscribe
+    @Subscribe(priority = 10)
     public void onServerPreConnect(ServerPreConnectEvent event) {
         Player player = event.getPlayer();
         String serverName = event.getOriginalServer().getServerInfo().getName();
         this.serverInfoMap = configurationManager.getServerInfoMap();
         PteroServerInfo serverInfo = serverInfoMap.get(serverName);
 
-        InetSocketAddress virtualHost = player.getVirtualHost().orElse(null);
-        // Check if this is a forced host connection
-        if (virtualHost != null && proxyServer.getConfiguration().getForcedHosts().containsKey(virtualHost) && event.getOriginalServer().getServerInfo().equals(proxyServer.getConfiguration().getForcedHosts().get(virtualHost))) {
-
-            // If server not in config, do nothing and let default behavior handle it
-            if (!serverInfoMap.containsKey(serverName)) {
-                return;
+        // 1. Check if this server is managed by the plugin
+        if (!serverInfoMap.containsKey(serverName)) {
+            logger.warn(messagesManager.getMessage("server-not-found")
+                    .replace("%server%", serverName));
+            if (configurationManager.isServerNotFoundMessage()) {
+                player.sendMessage(
+                        this.getPluginPrefix()
+                                .append(Component.text(messagesManager.getMessage("server-not-found")
+                                        .replace("%server%", serverName), NamedTextColor.WHITE)));
             }
-
-            // Check if server is offline and needs starting
-            if (!apiClient.isServerOnline(serverName) && this.canMakeRequest()) {
-
-                // Start the server
-                startingServers.add(serverName);
-                apiClient.powerServer(serverInfo.getServerId(), "start");
-
-                String limboServerName = configurationManager.getLimboServerName();
-                if (limboServerName != "changeMe") {
-                    RegisteredServer limboServer = proxyServer.getServer(limboServerName).orElseThrow(() -> new RuntimeException("Limbo server not found: " + limboServerName));
-                    if (apiClient.isServerOnline(String.valueOf(serverInfoMap.get(serverInfoMap.get(limboServerName).getServerId())))) {
-                        player.createConnectionRequest(limboServer).fireAndForget();
-                    }
-                }else{
-                     player.disconnect(Component.text(messagesManager.getMessage("starting-server")
-                        .replace("%server%", serverName)));
-                }
-                // Kick player with startup message
-
-
-                // Schedule server status check
-                checkInitialServerActivity(serverName, serverInfo.getServerId());
-
-                event.setResult(ServerPreConnectEvent.ServerResult.denied());
-                return;
-            }
+            return;
         }
 
+        String serverId = serverInfo.getServerId();
+
+        // 2. Check Player Cooldown
         long currentTime = System.currentTimeMillis();
         long lastStartTime = playerCooldowns.getOrDefault(player.getUniqueId(), 0L);
         int cooldownTime = configurationManager.getPlayerCommandCooldown() * 1000; // Convert to milliseconds
@@ -297,62 +283,123 @@ public class VelocityPteroPower {
         if (currentTime - lastStartTime < cooldownTime) {
             long remainingSeconds = (cooldownTime - (currentTime - lastStartTime)) / 1000;
             player.sendMessage(
-                this.getPluginPrefix()
-                .append(Component.text(messagesManager.getMessage("cooldown-active")
-                        .replace("%timeout%", String.valueOf(remainingSeconds)), NamedTextColor.WHITE)));
+                    this.getPluginPrefix()
+                            .append(Component.text(messagesManager.getMessage("cooldown-active")
+                                    .replace("%timeout%", String.valueOf(remainingSeconds)), NamedTextColor.WHITE)));
             event.setResult(ServerPreConnectEvent.ServerResult.denied());
             return;
         }
 
-        if (!serverInfoMap.containsKey(serverName)) {
-            logger.warn(messagesManager.getMessage("server-not-found")
-                    .replace("%server%", serverName));
-            player.sendMessage(
-                this.getPluginPrefix()
-                .append(Component.text(messagesManager.getMessage("server-not-found")
-                        .replace("%server%", serverName), NamedTextColor.WHITE)));
-            return;
-        }
-        if (apiClient.isServerOnline(serverName) && this.canMakeRequest()) {
-            if (startingServers.contains(serverName)){
+        // 3. Check if the server is online
+        boolean isOnline = canMakeRequest() && apiClient.isServerOnline(serverName,serverId);
+        if (isOnline) {
+            if (startingServers.contains(serverName)) {
+                logger.info("Server {} ({}) is now online.", serverName, serverId);
                 startingServers.remove(serverName);
             }
             return;
         }
-        if (startingServers.contains(serverName)){
+
+        // 4. Check if already starting
+        if (startingServers.contains(serverName)) {
             player.sendMessage(
-                this.getPluginPrefix()
-                .append(Component.text( messagesManager.getMessage("server-starting")
-                        .replace("%server%",serverName), NamedTextColor.WHITE)));
+                    this.getPluginPrefix()
+                            .append(Component.text(messagesManager.getMessage("server-starting")
+                                    .replace("%server%", serverName), NamedTextColor.YELLOW)));
             event.setResult(ServerPreConnectEvent.ServerResult.denied());
             return;
         }
-        playerCooldowns.put(player.getUniqueId(), currentTime);
-        startingServers.add(serverName);
-        apiClient.powerServer(serverInfo.getServerId(), "start");
-        checkInitialServerActivity(serverName, serverInfo.getServerId());
-        player.sendMessage(
-                this.getPluginPrefix()
-                .append(Component.text(messagesManager.getMessage("starting-server")
-                        .replace("%server%", serverName), NamedTextColor.WHITE)));
-        event.setResult(ServerPreConnectEvent.ServerResult.denied());
 
-        proxyServer.getScheduler().buildTask(this, () -> {
-            if (apiClient.isServerOnline(serverName) && this.canMakeRequest() && player.isActive()) {
-                connectPlayer(player, serverName);
-            } else {
-                proxyServer.getScheduler().buildTask(this, () -> checkServerAndConnectPlayer(player, serverName)).schedule();
-            }
-        }).delay(16, TimeUnit.SECONDS).schedule();
+        // 5. Check Rate Limit *before* attempting start
+        if (!canMakeRequest()) {
+            logger.warn("Cannot start server {} ({}) due to rate limiting.", serverName, serverId);
+            player.sendMessage(
+                    this.getPluginPrefix()
+                            .append(Component.text(messagesManager.getMessage("error-rate-limited"), NamedTextColor.YELLOW)));
+            event.setResult(ServerPreConnectEvent.ServerResult.denied());
+            return;
         }
+
+        // 6. Get Limbo Server details
+        String limboServerName = configurationManager.getLimboServerName();
+        Optional<RegisteredServer> limboServerOpt = Optional.empty();
+        boolean useLimbo = false;
+
+        if (limboServerName != null) {
+            // Limbo server *is* configured, now check if it's usable
+            limboServerOpt = proxyServer.getServer(limboServerName); // Is it registered in Velocity?
+
+            if (limboServerOpt.isPresent()) {
+                // It's registered in Velocity. Now check if VPP manages it.
+                if (serverInfoMap.containsKey(limboServerName)) {
+                    // VPP manages this limbo server. Check its online status via API.
+                    PteroServerInfo limboInfo = serverInfoMap.get(limboServerName);
+                    String limboServerId = limboInfo.getServerId();
+
+                    if (canMakeRequest()) {
+                        if (apiClient.isServerOnline(limboServerName,limboServerId)) {
+                            logger.debug("VPP-managed limbo server '{}' is online. Using it.", limboServerName);
+                            useLimbo = true;
+                        } else {
+                            logger.warn("VPP-managed limbo server '{}' is offline. Starting it, but player {} will be disconnected.", limboServerName, player.getUsername());
+                            apiClient.powerServer(limboServerId, "start");
+                        }
+                    } else {
+                        logger.warn("Rate limited. Cannot check online status or start VPP-managed limbo server '{}'. Player {} will be disconnected.", limboServerName, player.getUsername());
+                    }
+                } else {
+                    logger.debug("Limbo server '{}' is registered but not managed by VPP. Assuming usable.", limboServerName);
+                    useLimbo = true;
+                }
+            } else {
+                logger.error("The configured limbo server '{}' is not registered with Velocity. Player {} will be disconnected.", limboServerName, player.getUsername());
+            }
+        } else {
+            logger.info("Limbo server is not configured. Player {} will be disconnected.", player.getUsername());
+        }
+
+        // 7. Start the Server & Handle Player
+        logger.info("Attempting to start server '{}' ({}) for player {}", serverName, serverId, player.getUsername());
+        startingServers.add(serverName);
+        playerCooldowns.put(player.getUniqueId(), currentTime); // Apply cooldown
+        apiClient.powerServer(serverId, "start"); // Start the TARGET server
+        checkInitialServerActivity(serverName, serverId); // Schedule idle check for TARGET server
+
+        if (useLimbo) {
+            // We already confirmed limboServerOpt.isPresent() if useLimbo is true
+            RegisteredServer limboServer = limboServerOpt.get();
+            logger.info("Redirecting player {} to limbo server '{}' while server '{}' starts.", player.getUsername(), limboServerName, serverName);
+            player.sendMessage(
+                    this.getPluginPrefix()
+                            .append(Component.text(messagesManager.getMessage("redirecting-to-limbo")
+                                    .replace("%server%", serverName)
+                                    .replace("%limbo%", limboServerName), NamedTextColor.AQUA)));
+
+            event.setResult(ServerPreConnectEvent.ServerResult.allowed(limboServer));
+
+            // Schedule the task to check and connect later FROM LIMBO
+            long initialDelay = configurationManager.getStartupInitialCheckDelay();
+            proxyServer.getScheduler().buildTask(this, () -> {
+                checkServerAndConnectPlayer(player, serverName);
+            }).delay(initialDelay, TimeUnit.SECONDS).schedule();
+
+        } else {
+            // Disconnect player (Limbo not configured, not registered, offline, or rate limited)
+            logger.info("Disconnecting player {} while server '{}' starts (Limbo not available/usable).", player.getUsername(), serverName);
+            player.disconnect(
+                    Component.text(messagesManager.getMessage("starting-server-disconnect")
+                            .replace("%server%", serverName), NamedTextColor.WHITE));
+            event.setResult(ServerPreConnectEvent.ServerResult.denied());
+        }
+    }
 
     private void checkServerAndConnectPlayer(Player player, String serverName) {
         PteroServerInfo serverInfo = serverInfoMap.get(serverName);
-        if (apiClient.isServerOnline(serverName) && this.canMakeRequest()) {
+        if (apiClient.isServerOnline(serverName, serverInfo.getServerId()) && this.canMakeRequest()) {
             connectPlayer(player, serverName);
         } else {
             proxyServer.getScheduler().buildTask(this, () -> checkServerAndConnectPlayer(player, serverName))
-                    .delay(configurationManager.getStartupJoinDelay(), TimeUnit.SECONDS).schedule();
+                    .delay(serverInfo.getJoinDelay(), TimeUnit.SECONDS).schedule();
         }
     }
 
@@ -380,7 +427,7 @@ public class VelocityPteroPower {
             return;
         }
 
-        if (apiClient.isServerOnline(serverName) && this.canMakeRequest()) {
+        if (apiClient.isServerOnline(serverName, serverInfoMap.get(serverName).getServerId()) && this.canMakeRequest()) {
             player.createConnectionRequest(server).fireAndForget();
             startingServers.remove(serverName);
         }
@@ -422,7 +469,7 @@ public class VelocityPteroPower {
 
     private void checkInitialServerActivity(String serverName, String serverId) {
         proxyServer.getScheduler().buildTask(this, () -> {
-            if (apiClient.isServerOnline(serverId) && apiClient.isServerEmpty(serverName)) {
+            if (apiClient.isServerOnline(serverName, serverId) && apiClient.isServerEmpty(serverName)) {
                 apiClient.powerServer(serverId, "stop");
                 logger.info(messagesManager.getMessage("idle-shutdown")
                         .replace("%server%", serverName));
@@ -430,7 +477,6 @@ public class VelocityPteroPower {
             }
         }).delay(configurationManager.getIdleStartShutdownTime(), TimeUnit.SECONDS).schedule();
     }
-
 
     /**
      * This method reloads the configuration for the VelocityPteroPower plugin.
@@ -441,6 +487,7 @@ public class VelocityPteroPower {
         configurationManager.loadConfig();
         this.serverInfoMap = configurationManager.getServerInfoMap();
         messagesManager.loadMessages();
+        this.logger.isEnabledForLevel(configurationManager.getLoggerLevel());
     }
     /**
      * This method returns the map of server names to PteroServerInfo objects.

@@ -11,6 +11,16 @@ fileversion: 7
 # If a new version is available, a message will be sent to the console and to players with the permission "ptero.reload".
 checkUpdate: true
 
+# Choose which logging level should be used
+# It depends on how much you want you're console to be filled with information from VPP
+# For production you can safely set it to a higher level but for development/testing it is recommended to use a lower level
+# 10 = Debug
+# 20 = Info
+# 30 = Warning
+# 40 = Error
+#default: 20
+loggerLevel: 20
+
 # How many Threads should be used to check the server status
 # The more threads the more requests can be handled at the same time
 # more threads = more resources used
@@ -22,8 +32,20 @@ apiThreads: 10
 # default: false
 printRateLimit: false
 
+# Choose the method to check if a managed server is online and ready.
+# "VELOCITY_PING": Uses Velocity's built-in ping functionality. Requires the server
+#                  to be registered in Velocity's config and accessible from the proxy.
+#                  Less resource-intensive, doesn't use API rate limits. Might report
+#                  online slightly before the server is fully joinable.
+#                  Some simple Limbo servers might not report any Ping back suing this method.
+# "PANEL_API": Uses the Pterodactyl/Pelican panel API to check the server's state.
+#                    More accurate for actual server state ("running"), but uses API
+#                    requests and counts towards rate limits.
+# Default: "VELOCITY_PING"
+serverStatusCheckMethod: "VELOCITY_PING"
+
 # How long the ping to the server lasts, to check if its is online, until it times out (in milliseconds)
-# default: 1000
+# default: 1000 (1 second)
 pingTimeout: 1000
 
 # How many retrys to shut down the server if the previous one failed
@@ -45,8 +67,16 @@ playerStartCooldown: 10
 
 # Server Name from your limbo
 # should be a configured server so it can be automatically started
-# changeMe = not configured so limbo server won't be connected
+# changeMe = not configured so limbo server won't be used
 limboServer: changeMe
+
+# How long (in seconds) the plugin should wait for the first check if the server is online
+# The joinDelay (configured for each server) is still applied when the server is online before a
+# player is automatically connected (so it doesn't affect this)
+# Maybe consider changing this to a lower value if you have for example a
+# limbo which is lightweight and starts fast
+# default: 10
+startupInitialCheckDelay: 10
 
 # Servers to ignore when the stopIdle command is used
 # THIS DOES NOT AFFECT forceStop
@@ -55,12 +85,10 @@ stopIdleIgnore:
   - lobby
   - limbo
 
-# This is used to check the server status to transfer players after the server starts
-startupJoin:
-  # Once the server is pingable, wait the specified number of seconds before sending the player to the server
-  # This is useful to wait for plugins like Luckperms to fully load
-  # If you set it to 0, the player will be connected as soon as the server is pingable
-  joinDelay: 5
+# If a player should receive a message when a server is not found in the config
+# message will always be send to console
+# default: false
+serverNotFoundMessage: false
 
 # Pterodactyl configuration
 pterodactyl:
@@ -90,4 +118,7 @@ servers:
     # If you set it to 0, the server will be stopped immediately after the last player leaves.
 
     timeout: 30
-    startupJoinDelay: 30
+
+    # The time (in seconds) VPP should wait before automatically connecting a player after a server successfully started.
+    # For example when you have a plugin that needs a few seconds to fully load.... or smth else.
+    startupJoinDelay: 10
