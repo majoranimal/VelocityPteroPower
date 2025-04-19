@@ -290,7 +290,6 @@ public class PteroCommand implements SimpleCommand {
                 apiClient.powerServer(serverInfo.getServerId(), "restart");
             }
             sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("server-restarting").replace("%server%", serverName))));
-        } else {
         }
     }
 
