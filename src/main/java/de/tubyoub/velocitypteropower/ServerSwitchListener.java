@@ -30,14 +30,17 @@ import com.velocitypowered.api.event.player.ServerConnectedEvent;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.ServerConnection;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
+import com.velocitypowered.api.scheduler.ScheduledTask;
 import de.tubyoub.velocitypteropower.api.PanelAPIClient;
-import de.tubyoub.velocitypteropower.api.PterodactylAPIClient;
+import  com.velocitypowered.api.proxy.Player;
+import de.tubyoub.velocitypteropower.manager.ConfigurationManager;
 import org.slf4j.Logger;
 
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledFuture;
 
 /**
  * This class listens to server switch events and disconnect events.
@@ -51,6 +54,7 @@ public class ServerSwitchListener {
     private final PanelAPIClient apiClient;
     private final ConfigurationManager configurationManager;
     private final Set<String> startingServers = ConcurrentHashMap.newKeySet();
+    private final Map<String, ScheduledTask> scheduledShutdowns = new ConcurrentHashMap<>();
     private Map<String, PteroServerInfo> serverInfoMap;
 
     /**
@@ -75,12 +79,26 @@ public class ServerSwitchListener {
      */
     @Subscribe
     public void onDisconnect(DisconnectEvent event) {
-        Optional<ServerConnection> serverConnection = event.getPlayer().getCurrentServer();
-        if (serverConnection.isPresent()) {
-            String serverName = serverConnection.get().getServerInfo().getName();
+        Player player = event.getPlayer();
+
+        if (!player.getCurrentServer().isPresent()) {
+            return;
+        }
+
+        RegisteredServer server = player.getCurrentServer().get().getServer();
+        String serverName = server.getServerInfo().getName();
+
+        // Only proceed if we have valid server info in our map
+        if (plugin.getServerInfoMap().containsKey(serverName)) {
             PteroServerInfo serverInfo = plugin.getServerInfoMap().get(serverName);
-            if (serverInfo != null && apiClient.isServerEmpty(serverName)) {
-                plugin.scheduleServerShutdown(serverName, serverInfo.getServerId(), serverInfo.getTimeout());
+
+            // Check if server is empty before scheduling shutdown
+            if (plugin.getAPIClient().isServerEmpty(serverName)) {
+                plugin.scheduleServerShutdown(
+                    serverName,
+                    serverInfo.getServerId(),
+                    serverInfo.getTimeout()
+                );
             }
         }
     }
@@ -94,11 +112,29 @@ public class ServerSwitchListener {
     @Subscribe
     public void onServerSwitch(ServerConnectedEvent event) {
         Optional<RegisteredServer> previousServerConnection = event.getPreviousServer();
+        RegisteredServer server = event.getServer();
+
+        if (event.getPlayer() == null || event.getServer() == null || server.getServerInfo() == null || server.getServerInfo().getName() == null) {
+            return;
+        }
+
         if (previousServerConnection.isPresent()) {
             String serverName = previousServerConnection.get().getServerInfo().getName();
             PteroServerInfo serverInfo = plugin.getServerInfoMap().get(serverName);
-            if (serverInfo != null && apiClient.isServerEmpty(serverInfo.getServerId())) {
-                plugin.scheduleServerShutdown(serverName, serverInfo.getServerId(), serverInfo.getTimeout());
+            if (serverInfo != null && apiClient.isServerEmpty(serverName)) {
+                ScheduledTask shutdownTask = plugin.scheduleServerShutdown(serverName, serverInfo.getServerId(), serverInfo.getTimeout());
+                if (shutdownTask != null) {
+                    scheduledShutdowns.put(serverName, shutdownTask);
+                }
+            }
+        }
+
+        String newServerName = event.getServer().getServerInfo().getName();
+        if (scheduledShutdowns.containsKey(newServerName)) {
+            ScheduledTask shutdownTask = scheduledShutdowns.remove(newServerName);
+            if (shutdownTask != null) {
+                shutdownTask.cancel();
+                logger.info(plugin.getMessagesManager().getMessage("shutdown-cancelled").replace("%server%", newServerName));
             }
         }
     }
