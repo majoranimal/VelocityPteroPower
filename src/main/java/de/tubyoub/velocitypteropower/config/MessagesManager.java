@@ -1,4 +1,4 @@
-package de.tubyoub.velocitypteropower.manager;
+package de.tubyoub.velocitypteropower.config;
 
 import de.tubyoub.velocitypteropower.VelocityPteroPower;
 import dev.dejvokep.boostedyaml.YamlDocument;

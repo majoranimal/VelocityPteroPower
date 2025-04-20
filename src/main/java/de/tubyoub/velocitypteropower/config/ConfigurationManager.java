@@ -22,9 +22,9 @@
  *  SOFTWARE.
  */
 
-package de.tubyoub.velocitypteropower.manager;
+package de.tubyoub.velocitypteropower.config;
 
-import de.tubyoub.velocitypteropower.PteroServerInfo;
+import de.tubyoub.velocitypteropower.model.PteroServerInfo;
 import de.tubyoub.velocitypteropower.VelocityPteroPower;
 import de.tubyoub.velocitypteropower.api.PanelType;
 import dev.dejvokep.boostedyaml.YamlDocument;

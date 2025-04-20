@@ -22,14 +22,18 @@
  *  SOFTWARE.
  */
 
-package de.tubyoub.velocitypteropower;
+package de.tubyoub.velocitypteropower.command;
 
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
+import de.tubyoub.velocitypteropower.api.PowerSignal;
+import de.tubyoub.velocitypteropower.model.PteroServerInfo;
+import de.tubyoub.velocitypteropower.VelocityPteroPower;
 import de.tubyoub.velocitypteropower.api.PanelAPIClient;
-import de.tubyoub.velocitypteropower.manager.ConfigurationManager;
+import de.tubyoub.velocitypteropower.config.ConfigurationManager;
+import de.tubyoub.velocitypteropower.util.RateLimitTracker;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
@@ -47,6 +51,7 @@ public class PteroCommand implements SimpleCommand {
     private final VelocityPteroPower plugin;
     private final Logger logger;
     private final PanelAPIClient apiClient;
+    public final RateLimitTracker rateLimitTracker;
     private final ConfigurationManager configurationManager;
     private final Map<UUID, Long> pendingForceStopConfirmations = new HashMap<>();
     private static final long CONFIRMATION_TIMEOUT_MS = 30000; // 30 seconds
@@ -60,7 +65,8 @@ public class PteroCommand implements SimpleCommand {
         this.plugin = plugin;
         this.proxyServer = plugin.getProxyServer();
         this.logger = plugin.getLogger();
-        this.apiClient = plugin.getAPIClient();
+        this.apiClient = plugin.getApiClient();
+        this.rateLimitTracker = plugin.getRateLimitTracker();
         this.configurationManager = plugin.getConfigurationManager();
     }
 
@@ -185,8 +191,8 @@ public class PteroCommand implements SimpleCommand {
                     continue;
                 }
 
-                if (plugin.canMakeRequest()) {
-                    apiClient.powerServer(serverInfo.getServerId(), "stop");
+                if (rateLimitTracker.canMakeRequest()) {
+                    apiClient.powerServer(serverInfo.getServerId(), PowerSignal.STOP);
                     stoppedCount++;
                 } else {
                     sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("rate-limit-exceeded"), NamedTextColor.RED)));
@@ -213,8 +219,8 @@ public class PteroCommand implements SimpleCommand {
                 String serverName = entry.getKey();
                 PteroServerInfo serverInfo = entry.getValue();
 
-                if (plugin.canMakeRequest()) {
-                    apiClient.powerServer(serverInfo.getServerId(), "stop");
+                if (rateLimitTracker.canMakeRequest()) {
+                    apiClient.powerServer(serverInfo.getServerId(), PowerSignal.STOP);
                     stoppedCount++;
                 } else {
                     sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("rate-limit-exceeded"), NamedTextColor.RED)));
@@ -246,8 +252,8 @@ public class PteroCommand implements SimpleCommand {
         Map<String, PteroServerInfo> serverInfoMap = plugin.getServerInfoMap();
         if (serverInfoMap.containsKey(serverName)) {
             PteroServerInfo serverInfo = serverInfoMap.get(serverName);
-            if (plugin.canMakeRequest()) {
-                apiClient.powerServer(serverInfo.getServerId(), "start");
+            if (rateLimitTracker.canMakeRequest()) {
+                apiClient.powerServer(serverInfo.getServerId(), PowerSignal.START);
             }
             sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("starting-server").replace("%server%", serverName))));
         } else {
@@ -269,8 +275,8 @@ public class PteroCommand implements SimpleCommand {
         Map<String, PteroServerInfo> serverInfoMap = plugin.getServerInfoMap();
         if (serverInfoMap.containsKey(serverName)) {
             PteroServerInfo serverInfo = serverInfoMap.get(serverName);
-            if (plugin.canMakeRequest()) {
-                apiClient.powerServer(serverInfo.getServerId(), "stop");
+            if (rateLimitTracker.canMakeRequest()) {
+                apiClient.powerServer(serverInfo.getServerId(), PowerSignal.STOP);
             }
             sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("server-shutting-down").replace("%server%", serverName))));
         } else {
@@ -286,8 +292,8 @@ public class PteroCommand implements SimpleCommand {
         Map<String, PteroServerInfo> serverInfoMap = plugin.getServerInfoMap();
         if (serverInfoMap.containsKey(serverName)) {
             PteroServerInfo serverInfo = serverInfoMap.get(serverName);
-            if (plugin.canMakeRequest()) {
-                apiClient.powerServer(serverInfo.getServerId(), "restart");
+            if (rateLimitTracker.canMakeRequest()) {
+                apiClient.powerServer(serverInfo.getServerId(), PowerSignal.RESTART);
             }
             sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("server-restarting").replace("%server%", serverName))));
         }
@@ -299,7 +305,7 @@ public class PteroCommand implements SimpleCommand {
      * @param sender the player who executed the command
      */
     private void reloadConfig(CommandSource sender) {
-        plugin.reloadConfig();
+        plugin.reload();
         sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("config-reload"),TextColor.color(0,255,0))));
     }
 
@@ -317,10 +323,10 @@ public class PteroCommand implements SimpleCommand {
             List<String> suggestions = new ArrayList<>();
             suggestions.add("start");
             suggestions.add("stop");
-            suggestions.add("stopidle");
-            suggestions.add("forcestopall");
             suggestions.add("restart");
+            suggestions.add("stopidle");
             suggestions.add("reload");
+            suggestions.add("forcestopall");
             return suggestions;
         } else if (currentArgs.length == 2) {
             String subCommand = currentArgs[0].toLowerCase();

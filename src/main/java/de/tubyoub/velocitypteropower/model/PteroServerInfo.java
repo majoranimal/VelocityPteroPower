@@ -22,7 +22,7 @@
  *  SOFTWARE.
  */
 
-package de.tubyoub.velocitypteropower;
+package de.tubyoub.velocitypteropower.model;
 
 /**
  * This class represents the server information for a Pterodactyl server.
