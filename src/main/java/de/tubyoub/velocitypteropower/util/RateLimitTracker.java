@@ -1,6 +1,5 @@
 /*
  * This file is part of VelocityPteroPower, licensed under the MIT License.
- * (Header omitted for brevity, assume it's the same as others)
  */
 package de.tubyoub.velocitypteropower.util;
 

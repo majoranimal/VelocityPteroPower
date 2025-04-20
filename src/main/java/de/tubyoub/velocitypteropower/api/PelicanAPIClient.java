@@ -1,6 +1,8 @@
+/*
+ * This file is part of VelocityPteroPower, licensed under the MIT License.
+ */
 package de.tubyoub.velocitypteropower.api;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.velocitypowered.api.proxy.server.ServerPing;
