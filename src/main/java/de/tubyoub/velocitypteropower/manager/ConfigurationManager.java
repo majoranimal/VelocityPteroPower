@@ -207,7 +207,7 @@ public class ConfigurationManager {
         }
         if (apiKey.startsWith("ptlc_")) {
             return PanelType.pterodactyl;
-        } else if (apiKey.startsWith("peli_")) {
+        } else if (apiKey.startsWith("plcn_ ")) {
             return PanelType.pelican;
         } else {
             logger.warn(
@@ -224,7 +224,7 @@ public class ConfigurationManager {
      */
     public boolean hasValidApiKey() {
         return apiKey != null && !apiKey.isEmpty() &&
-               (apiKey.startsWith("ptlc_") || apiKey.startsWith("peli_"));
+               (apiKey.startsWith("ptlc_") || apiKey.startsWith("plcn_ "));
     }
 
     /**
