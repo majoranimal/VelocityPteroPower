@@ -3,6 +3,8 @@
  */
 package de.tubyoub.velocitypteropower.api;
 
+import java.util.concurrent.CompletableFuture;
+
 /**
  * Interface defining the contract for interacting with a Panel's API (Pterodactyl or Pelican).
  * Provides methods for controlling server power state and querying status.
@@ -32,6 +34,12 @@ public interface PanelAPIClient {
      * @return {@code true} if the server has no players connected or is not found in Velocity, {@code false} otherwise.
      */
     boolean isServerEmpty(String serverName);
+    /**
+     * Fetch the whitelist.json file content from a server
+     * @param serverId The server ID
+     * @return A CompletableFuture containing the whitelist JSON as a string
+     */
+    CompletableFuture<String> fetchWhitelistFile(String serverId);
     /**
      * Shuts down any resources used by the API client, such as thread pools.
      * Should be called when the plugin is disabled.

@@ -12,8 +12,8 @@ import de.tubyoub.velocitypteropower.VelocityPteroPower;
 import de.tubyoub.velocitypteropower.model.PteroServerInfo;
 import de.tubyoub.velocitypteropower.api.PanelAPIClient;
 import de.tubyoub.velocitypteropower.api.PowerSignal;
-import de.tubyoub.velocitypteropower.config.ConfigurationManager;
-import de.tubyoub.velocitypteropower.config.MessagesManager;
+import de.tubyoub.velocitypteropower.manager.ConfigurationManager;
+import de.tubyoub.velocitypteropower.manager.MessagesManager;
 import de.tubyoub.velocitypteropower.util.RateLimitTracker;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -53,7 +53,7 @@ public class PlayerConnectionHandler {
     public PlayerConnectionHandler(ProxyServer proxyServer, VelocityPteroPower plugin) {
         this.proxyServer = proxyServer;
         this.plugin = plugin;
-        this.logger = plugin.getLogger();
+        this.logger = plugin.getFilteredLogger();
         this.configurationManager = plugin.getConfigurationManager();
         this.messagesManager = plugin.getMessagesManager();
         this.apiClient = plugin.getApiClient();
@@ -83,11 +83,18 @@ public class PlayerConnectionHandler {
             handleUnmanagedServer(player, serverName);
             return; // Not managed by this plugin
         }
+        if (!plugin.getWhitelistManager().isPlayerWhitelisted(serverName, player.getUsername())) {
+            if (event.getPreviousServer() == null) {
+                player.disconnect(Component.text("You are not whitelisted on this server"));
+                return;
+            }
+            player.sendMessage(Component.text("You are not whitelisted on this server"));
+        }
 
         String serverId = serverInfo.getServerId();
 
         // 2. Check Player Cooldown for starting this specific server
-        if (isPlayerOnCooldown(player, serverName) && event.getPreviousServer() != null) {
+        if (isPlayerOnCooldown(player, serverName) && event.getPreviousServer() != null ) {
             event.setResult(ServerPreConnectEvent.ServerResult.denied());
             return; // Player is on cooldown for this action
         }

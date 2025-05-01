@@ -43,7 +43,7 @@ public class ServerSwitchListener {
      */
     public ServerSwitchListener(VelocityPteroPower plugin, ServerLifecycleManager serverLifecycleManager) {
         this.plugin = plugin;
-        this.logger = plugin.getLogger();
+        this.logger = plugin.getFilteredLogger();
         this.proxyServer = plugin.getProxyServer();
         this.apiClient = plugin.getApiClient(); // Get from plugin
         this.serverLifecycleManager = serverLifecycleManager;

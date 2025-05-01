@@ -6,7 +6,7 @@ package de.tubyoub.velocitypteropower.api;
 import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import com.velocitypowered.api.proxy.server.ServerPing;
-import de.tubyoub.velocitypteropower.config.ConfigurationManager;
+import de.tubyoub.velocitypteropower.manager.ConfigurationManager;
 import de.tubyoub.velocitypteropower.VelocityPteroPower;
 import de.tubyoub.velocitypteropower.util.RateLimitTracker;
 import org.slf4j.Logger;
@@ -41,7 +41,7 @@ public class PterodactylAPIClient implements PanelAPIClient{
      */
     public PterodactylAPIClient(VelocityPteroPower plugin){
         this.plugin = plugin;
-        this.logger = plugin.getLogger();
+        this.logger = plugin.getFilteredLogger();
         this.configurationManager = plugin.getConfigurationManager();
         this.proxyServer = plugin.getProxyServer();
         this.rateLimitTracker = plugin.getRateLimitTracker();
@@ -330,6 +330,44 @@ public class PterodactylAPIClient implements PanelAPIClient{
             .map(server -> server.getPlayersConnected().isEmpty())
             .orElse(true); // Treat non-existent server as empty
     }
+    public CompletableFuture<String> fetchWhitelistFile(String serverId) {
+        CompletableFuture<String> future = new CompletableFuture<>();
+        logger.debug("Fetching whitelist for server {} with ID {}", serverId, serverId);
+        executorService.submit(() -> {
+            try {
+                String url = configurationManager.getPterodactylUrl() + "api/client/servers/" + serverId + "/files/contents?file=whitelist.json";
+
+                HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Accept", "application/json")
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + configurationManager.getPterodactylApiKey())
+                    .GET()
+                    .build();
+
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+                // Update rate limit tracker
+                rateLimitTracker.updateRateLimitInfo(response);
+
+                if (response.statusCode() == 200) {
+                    future.complete(response.body());
+                } else if (response.statusCode() == 404) {
+                    logger.debug("Whitelist file not found for server {}", serverId);
+                    future.complete("[]"); // Return empty whitelist if file doesn't exist
+                } else {
+                    logger.error("Failed to fetch whitelist for server {}: HTTP {}", serverId, response.statusCode());
+                    future.completeExceptionally(new RuntimeException("HTTP Error " + response.statusCode()));
+                }
+            } catch (Exception e) {
+                logger.error("Error fetching whitelist for server {}: {}", serverId, e.getMessage());
+                future.completeExceptionally(e);
+            }
+        });
+        logger.debug(future.toString());
+        return future;
+    }
+
     /**
      * Shuts down the executor service used for API requests.
      */

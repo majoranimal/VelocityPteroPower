@@ -11,6 +11,7 @@ public  class PteroServerInfo {
     private final String serverId;
     private final int timeout;
     private final int joinDelay;
+    private final boolean whitelist;
 
     /**
      * Constructor for the PteroServerInfo class.
@@ -19,10 +20,11 @@ public  class PteroServerInfo {
      * @param timeout the timeout for the server
      * @param joinDelay the join delay for the server
      */
-    public PteroServerInfo(String serverId, int timeout, int joinDelay) {
+    public PteroServerInfo(String serverId, int timeout, int joinDelay, boolean whitelist) {
         this.serverId = serverId;
         this.timeout = timeout;
         this.joinDelay = joinDelay;
+        this.whitelist = whitelist;
     }
 
     /**
@@ -50,5 +52,8 @@ public  class PteroServerInfo {
      */
     public int getJoinDelay() {
         return joinDelay;
+    }
+    public boolean isWhitelistEnabled() {
+        return whitelist;
     }
 }

@@ -3,7 +3,7 @@
  */
 package de.tubyoub.velocitypteropower.service;
 
-import de.tubyoub.velocitypteropower.config.ConfigurationManager;
+import de.tubyoub.velocitypteropower.manager.ConfigurationManager;
 import de.tubyoub.velocitypteropower.util.VersionChecker;
 import net.kyori.adventure.text.logger.slf4j.ComponentLogger;
 

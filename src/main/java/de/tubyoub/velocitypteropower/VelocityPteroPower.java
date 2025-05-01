@@ -16,13 +16,15 @@ import de.tubyoub.velocitypteropower.api.PanelType;
 import de.tubyoub.velocitypteropower.api.PelicanAPIClient;
 import de.tubyoub.velocitypteropower.api.PterodactylAPIClient;
 import de.tubyoub.velocitypteropower.command.PteroCommand;
-import de.tubyoub.velocitypteropower.config.ConfigurationManager;
-import de.tubyoub.velocitypteropower.config.MessagesManager;
+import de.tubyoub.velocitypteropower.manager.ConfigurationManager;
+import de.tubyoub.velocitypteropower.manager.MessagesManager;
 import de.tubyoub.velocitypteropower.handler.PlayerConnectionHandler;
 import de.tubyoub.velocitypteropower.lifecycle.ServerLifecycleManager;
 import de.tubyoub.velocitypteropower.listener.ServerSwitchListener;
+import de.tubyoub.velocitypteropower.manager.WhitelistManager;
 import de.tubyoub.velocitypteropower.model.PteroServerInfo;
 import de.tubyoub.velocitypteropower.service.UpdateService;
+import de.tubyoub.velocitypteropower.util.FilteredComponentLogger;
 import de.tubyoub.velocitypteropower.util.Metrics;
 import de.tubyoub.velocitypteropower.util.RateLimitTracker;
 import net.kyori.adventure.text.Component;
@@ -30,6 +32,8 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.logger.slf4j.ComponentLogger;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import org.slf4j.event.Level;
+import org.slf4j.helpers.MessageFormatter;
 
 import java.nio.file.Path;
 import java.util.Map;
@@ -51,13 +55,13 @@ import java.util.concurrent.ConcurrentHashMap;
 )
 public class VelocityPteroPower {
     // Plugin constants
-    private static final String VERSION = "0.4";
+    private static final String VERSION = "0.9.4";
     private static final String MODRINTH_PROJECT_ID = "1dDr5J4w";
     private static final int BSTATS_PLUGIN_ID = 21465;
 
     // Injected dependencies
     private final ProxyServer proxyServer;
-    private final ComponentLogger logger;
+    private ComponentLogger originalLogger;
     private final Path dataDirectory;
     private final CommandManager commandManager;
     private final Metrics.Factory metricsFactory;
@@ -65,12 +69,15 @@ public class VelocityPteroPower {
     // Core Components (Managers, Services, Handlers)
     private ConfigurationManager configurationManager;
     private MessagesManager messagesManager;
+    private WhitelistManager whitelistManager;
     private PanelAPIClient apiClient;
     private RateLimitTracker rateLimitTracker;
     private UpdateService updateService;
     private PlayerConnectionHandler playerConnectionHandler;
     private ServerLifecycleManager serverLifecycleManager;
     private ServerSwitchListener serverSwitchListener;
+
+    private FilteredComponentLogger filteredLogger;
 
     // Shared State (managed here, passed to handlers/managers)
     private Map<String, PteroServerInfo> serverInfoMap = new ConcurrentHashMap<>();
@@ -89,10 +96,12 @@ public class VelocityPteroPower {
         Metrics.Factory metricsFactory
     ) {
         this.proxyServer = proxy;
-        this.logger = logger;
+        this.originalLogger = logger;
         this.dataDirectory = dataDirectory;
         this.commandManager = commandManager;
         this.metricsFactory = metricsFactory;
+
+        this.filteredLogger = new FilteredComponentLogger(this.originalLogger, Level.INFO);
     }
 
     /**
@@ -104,10 +113,15 @@ public class VelocityPteroPower {
 
         // 1. Initialize Config and Messages First
         this.configurationManager = new ConfigurationManager(this);
-        this.messagesManager = new MessagesManager(this);
         configurationManager.loadConfig();
+        this.serverInfoMap = configurationManager.getServerInfoMap();
+        this.updateLoggerLevel();
+
+        this.whitelistManager = new WhitelistManager(proxyServer, this);
+
+        this.messagesManager = new MessagesManager(this);
         messagesManager.loadMessages();
-        logger.isEnabledForLevel(configurationManager.getLoggerLevel());
+
 
         // 2. Validate API Key
         if (!configurationManager.hasValidApiKey()) {
@@ -116,14 +130,15 @@ public class VelocityPteroPower {
         }
 
         // 3. Initialize Core Components
-        this.rateLimitTracker = new RateLimitTracker(logger, configurationManager);
-        this.updateService = new UpdateService(logger, configurationManager, VERSION, MODRINTH_PROJECT_ID);
+        this.rateLimitTracker = new RateLimitTracker(filteredLogger, configurationManager);
+        this.updateService = new UpdateService(filteredLogger, configurationManager, VERSION, MODRINTH_PROJECT_ID);
         initializeApiClient(); // Sets up apiClient
         if (this.apiClient == null) {
-            logger.error("Failed to initialize Panel API Client. Plugin disabled.");
+            filteredLogger.error("Failed to initialize Panel API Client. Plugin disabled.");
             return;
         }
-        this.serverInfoMap = configurationManager.getServerInfoMap(); // Load initial map
+
+        whitelistManager.initialize();
 
         // 4. Initialize Handlers/Managers/Listeners that depend on core components
         this.serverLifecycleManager = new ServerLifecycleManager(proxyServer,this);
@@ -144,7 +159,7 @@ public class VelocityPteroPower {
         // 7. Check for Updates
         updateService.performUpdateCheck();
 
-        logger.info("VelocityPteroPower v{} successfully loaded.", VERSION);
+        filteredLogger.info("VelocityPteroPower v{} successfully loaded.", VERSION);
     }
 
     /**
@@ -156,25 +171,21 @@ public class VelocityPteroPower {
             apiClient.shutdown();
         }
         // Potentially add shutdown logic for other components if needed
-        logger.info("Shutting down VelocityPteroPower... Goodbye!");
+        filteredLogger.info("Shutting down VelocityPteroPower... Goodbye!");
     }
 
     /** Reloads the plugin's configuration and messages, and updates relevant state. */
     public void reload() {
-        logger.info("Reloading VelocityPteroPower configuration...");
+        filteredLogger.info("Reloading VelocityPteroPower configuration...");
 
         // Reload core config/messages
         configurationManager.loadConfig();
+        this.updateLoggerLevel();
         messagesManager.loadMessages();
-        logger.isEnabledForLevel(configurationManager.getLoggerLevel());
+        whitelistManager.initialize();
 
         // Update server info map reference (important for handlers/managers using it)
         this.serverInfoMap = configurationManager.getServerInfoMap();
-        // Note: If handlers/managers made copies, they'd need a way to get the new map.
-        // Since they hold references, updating this.serverInfoMap should be sufficient IF
-        // ConfigurationManager returns the *same map instance* or the handlers re-fetch it.
-        // Let's assume ConfigurationManager updates its internal map and getServerInfoMap returns the current one.
-
         // Re-initialize API client if panel type or credentials changed
         PanelType oldType = (apiClient instanceof PelicanAPIClient) ? PanelType.pelican : PanelType.pterodactyl;
         PanelType newType = configurationManager.getPanelType();
@@ -183,13 +194,13 @@ public class VelocityPteroPower {
 
         // Only re-init if type or key actually changed
         if (apiClient == null || oldType != newType || !oldKey.equals(newKey)) {
-             logger.info("API client configuration changed. Re-initializing...");
+             filteredLogger.info("API client configuration changed. Re-initializing...");
              if (apiClient != null) {
                  apiClient.shutdown(); // Shutdown old client
              }
              initializeApiClient();
              if (apiClient == null) {
-                 logger.error("Failed to re-initialize Panel API Client after reload. Plugin may not function correctly.");
+                 filteredLogger.error("Failed to re-initialize Panel API Client after reload. Plugin may not function correctly.");
              }
              // Update API client reference in components that use it
              if (serverLifecycleManager != null) {
@@ -197,24 +208,30 @@ public class VelocityPteroPower {
                  // For simplicity, let's assume re-creation or non-final field for now.
                  // This highlights a complexity of splitting - managing dependency updates.
                  // A better approach might use dependency injection frameworks.
-                 logger.warn("API Client re-initialized. Dependent components might need restarting or updating.");
+                 filteredLogger.warn("API Client re-initialized. Dependent components might need restarting or updating.");
              }
              if (playerConnectionHandler != null) {
-                  logger.warn("API Client re-initialized. Dependent components might need restarting or updating.");
+                  filteredLogger.warn("API Client re-initialized. Dependent components might need restarting or updating.");
              }
 
         } else {
-             logger.info("API client configuration unchanged.");
+             filteredLogger.info("API client configuration unchanged.");
         }
 
 
-        logger.info("VelocityPteroPower configuration reloaded.");
+        filteredLogger.info("VelocityPteroPower configuration reloaded.");
+    }
+
+   public void updateLoggerLevel() {
+        org.slf4j.event.Level configLevel = configurationManager.getLoggerLevel();
+        filteredLogger.setLevel(configLevel); // Use your wrapper's setLevel method
+        // The setLevel method in FilteredComponentLogger will log the change
     }
 
     /** Initializes the appropriate PanelAPIClient based on configuration. */
     private void initializeApiClient() {
         PanelType type = configurationManager.getPanelType();
-        logger.info("Initializing API client for panel type: {}", type);
+        filteredLogger.info("Initializing API client for panel type: {}", type);
         // Ensure API key is valid before creating client
         if (!configurationManager.hasValidApiKey()) {
              logInvalidApiKeyError();
@@ -232,25 +249,25 @@ public class VelocityPteroPower {
     /** Logs the plugin's startup banner. */
     private void logStartupBanner() {
         MiniMessage mm = MiniMessage.miniMessage();
-        logger.info(mm.deserialize("<#4287f5>____   ________________________"));
-        logger.info(mm.deserialize("<#4287f5>\\   \\ /   /\\______   \\______   \\"));
-        logger.info(mm.deserialize("<#4287f5> \\   Y   /  |     ___/|     ___/"));
-        logger.info(mm.deserialize("<#4287f5>  \\     /   |    |    |    |"+ "<#00ff77>         VelocityPteroPower <#6b6c6e>v" + VERSION));
-        logger.info(mm.deserialize("<#4287f5>   \\___/    |____|tero|____|ower" + "<#A9A9A9>     Running on Velocity"));
+        filteredLogger.info(mm.deserialize("<#4287f5>____   ________________________"));
+        filteredLogger.info(mm.deserialize("<#4287f5>\\   \\ /   /\\______   \\______   \\"));
+        filteredLogger.info(mm.deserialize("<#4287f5> \\   Y   /  |     ___/|     ___/"));
+        filteredLogger.info(mm.deserialize("<#4287f5>  \\     /   |    |    |    |"+ "<#00ff77>         VelocityPteroPower <#6b6c6e>v" + VERSION));
+        filteredLogger.info(mm.deserialize("<#4287f5>   \\___/    |____|tero|____|ower" + "<#A9A9A9>     Running on Velocity"));
     }
 
     /** Logs a detailed error message when the API key is invalid. */
     private void logInvalidApiKeyError() {
-         logger.error("=================================================");
-         logger.error(" VelocityPteroPower Initialization Failed!");
-         logger.error(" ");
-         logger.error(" No valid API key found or configured in config.yml.");
-         logger.error(" Please ensure 'pterodactyl.apiKey' is set correctly.");
-         logger.error(" Key should start with 'ptlc_' (Client) or 'peli_' (Pelican).");
-         logger.error(" Application API keys ('ptla_') are NOT supported.");
-         logger.error(" ");
-         logger.error(" Plugin will be disabled.");
-         logger.error("=================================================");
+         filteredLogger.error("=================================================");
+         filteredLogger.error(" VelocityPteroPower Initialization Failed!");
+         filteredLogger.error(" ");
+         filteredLogger.error(" No valid API key found or configured in config.yml.");
+         filteredLogger.error(" Please ensure 'pterodactyl.apiKey' is set correctly.");
+         filteredLogger.error(" Key should start with 'ptlc_' (Client) or 'peli_' (Pelican).");
+         filteredLogger.error(" Application API keys ('ptla_') are NOT supported.");
+         filteredLogger.error(" ");
+         filteredLogger.error(" Plugin will be disabled.");
+         filteredLogger.error("=================================================");
     }
 
     /**
@@ -273,8 +290,8 @@ public class VelocityPteroPower {
         return proxyServer;
     }
 
-    public ComponentLogger getLogger() {
-        return logger;
+    public FilteredComponentLogger getFilteredLogger() {
+        return filteredLogger;
     }
 
     public Path getDataDirectory() {
@@ -287,6 +304,10 @@ public class VelocityPteroPower {
 
     public MessagesManager getMessagesManager() {
         return messagesManager;
+    }
+
+    public WhitelistManager getWhitelistManager() {
+        return whitelistManager;
     }
 
     public PanelAPIClient getApiClient() {

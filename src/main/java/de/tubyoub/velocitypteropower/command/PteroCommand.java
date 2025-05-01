@@ -11,7 +11,7 @@ import de.tubyoub.velocitypteropower.api.PowerSignal;
 import de.tubyoub.velocitypteropower.model.PteroServerInfo;
 import de.tubyoub.velocitypteropower.VelocityPteroPower;
 import de.tubyoub.velocitypteropower.api.PanelAPIClient;
-import de.tubyoub.velocitypteropower.config.ConfigurationManager;
+import de.tubyoub.velocitypteropower.manager.ConfigurationManager;
 import de.tubyoub.velocitypteropower.util.RateLimitTracker;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -43,7 +43,7 @@ public class PteroCommand implements SimpleCommand {
     public PteroCommand(VelocityPteroPower plugin) {
         this.plugin = plugin;
         this.proxyServer = plugin.getProxyServer();
-        this.logger = plugin.getLogger();
+        this.logger = plugin.getFilteredLogger();
         this.apiClient = plugin.getApiClient();
         this.rateLimitTracker = plugin.getRateLimitTracker();
         this.configurationManager = plugin.getConfigurationManager();
@@ -73,21 +73,21 @@ public class PteroCommand implements SimpleCommand {
                 if (sender.hasPermission("ptero.start")) {
                     startServer(invocation.source(), args);
                 } else {
-                    sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("no-permission"),TextColor.color(255,0,0))));
+                    sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("no-permission"), TextColor.color(255, 0, 0))));
                 }
                 break;
             case "stop":
                 if (sender.hasPermission("ptero.stop")) {
                     stopServer(sender, args);
                 } else {
-                    sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("no-permission"),TextColor.color(255,0,0))));
+                    sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("no-permission"), TextColor.color(255, 0, 0))));
                 }
                 break;
             case "reload":
                 if (sender.hasPermission("ptero.reload")) {
                     reloadConfig(sender);
                 } else {
-                    sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("no-permission"),TextColor.color(255,0,0))));
+                    sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("no-permission"), TextColor.color(255, 0, 0))));
                 }
                 break;
             case "restart":
@@ -97,9 +97,16 @@ public class PteroCommand implements SimpleCommand {
                     sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("no-permission"), TextColor.color(255, 0, 0))));
                 }
                 break;
-            case "stopidle", "stopIdle":
+            case "stopidle":
                 if (sender.hasPermission("ptero.stopIdle")) {
                     stopIdleServers(sender);
+                } else {
+                    sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("no-permission"), TextColor.color(255, 0, 0))));
+                }
+                break;
+            case "reloadwhitelist":
+                if (sender.hasPermission("ptero.whitelistReload")) {
+                    plugin.getWhitelistManager().updateAllWhitelists();
                 } else {
                     sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("no-permission"), TextColor.color(255, 0, 0))));
                 }
@@ -304,6 +311,7 @@ public class PteroCommand implements SimpleCommand {
             suggestions.add("stop");
             suggestions.add("restart");
             suggestions.add("stopidle");
+            suggestions.add("whitelistReload");
             suggestions.add("reload");
             suggestions.add("forcestopall");
             return suggestions;
@@ -328,6 +336,7 @@ public class PteroCommand implements SimpleCommand {
         sender.sendMessage(plugin.getPluginPrefix().append(Component.text("/ptero stop <serverName>", TextColor.color(66,135,245))));
         sender.sendMessage(plugin.getPluginPrefix().append(Component.text("/ptero stopidle", TextColor.color(66,135,245))));
         sender.sendMessage(plugin.getPluginPrefix().append(Component.text("/ptero forcestopall", TextColor.color(66,135,245))));
+        sender.sendMessage(plugin.getPluginPrefix().append(Component.text("/ptero whitelistReload", TextColor.color(66,135,245))));
         sender.sendMessage(plugin.getPluginPrefix().append(Component.text("/ptero reload", TextColor.color(66,135,245))));
         sender.sendMessage(plugin.getPluginPrefix().append(Component.text("/ptero help", TextColor.color(66,135,245))));
     }

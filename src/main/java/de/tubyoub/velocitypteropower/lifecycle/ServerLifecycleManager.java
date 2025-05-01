@@ -9,8 +9,8 @@ import de.tubyoub.velocitypteropower.VelocityPteroPower;
 import de.tubyoub.velocitypteropower.model.PteroServerInfo;
 import de.tubyoub.velocitypteropower.api.PanelAPIClient;
 import de.tubyoub.velocitypteropower.api.PowerSignal;
-import de.tubyoub.velocitypteropower.config.ConfigurationManager;
-import de.tubyoub.velocitypteropower.config.MessagesManager;
+import de.tubyoub.velocitypteropower.manager.ConfigurationManager;
+import de.tubyoub.velocitypteropower.manager.MessagesManager;
 import de.tubyoub.velocitypteropower.util.RateLimitTracker;
 import net.kyori.adventure.text.logger.slf4j.ComponentLogger;
 
@@ -44,7 +44,7 @@ public class ServerLifecycleManager {
     public ServerLifecycleManager(ProxyServer proxyServer, VelocityPteroPower plugin) {
         this.proxyServer = proxyServer;
         this.plugin = plugin;
-        this.logger = plugin.getLogger();
+        this.logger = plugin.getFilteredLogger();
         this.configurationManager = plugin.getConfigurationManager();
         this.messagesManager = plugin.getMessagesManager();
         this.apiClient = plugin.getApiClient();

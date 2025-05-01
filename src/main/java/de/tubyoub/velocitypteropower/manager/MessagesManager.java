@@ -1,7 +1,7 @@
 /*
  * This file is part of VelocityPteroPower, licensed under the MIT License.
  */
-package de.tubyoub.velocitypteropower.config;
+package de.tubyoub.velocitypteropower.manager;
 
 import de.tubyoub.velocitypteropower.VelocityPteroPower;
 import dev.dejvokep.boostedyaml.YamlDocument;
@@ -24,7 +24,7 @@ public class MessagesManager {
 
     public MessagesManager(VelocityPteroPower plugin) {
         this.plugin = plugin;
-        this.logger = plugin.getLogger();
+        this.logger = plugin.getFilteredLogger();
     }
 
     public void loadMessages() {
