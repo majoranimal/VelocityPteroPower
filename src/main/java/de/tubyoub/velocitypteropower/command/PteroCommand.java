@@ -7,6 +7,7 @@ import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
+import de.tubyoub.velocitypteropower.api.PanelType;
 import de.tubyoub.velocitypteropower.api.PowerSignal;
 import de.tubyoub.velocitypteropower.model.PteroServerInfo;
 import de.tubyoub.velocitypteropower.VelocityPteroPower;
@@ -105,6 +106,10 @@ public class PteroCommand implements SimpleCommand {
                 }
                 break;
             case "reloadwhitelist":
+                if (configurationManager.getPanelType() == PanelType.mcServerSoft){
+                    sender.sendMessage(plugin.getPluginPrefix().append(Component.text(plugin.getMessagesManager().getMessage("mcss-not-supported"), TextColor.color(255, 0, 0))));
+                    break;
+                }
                 if (sender.hasPermission("ptero.whitelistReload")) {
                     plugin.getWhitelistManager().updateAllWhitelists();
                 } else {

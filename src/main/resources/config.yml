@@ -99,7 +99,7 @@ whitelistAllowBypass: true
 # default: 10
 whitelistCheckInterval: 10
 
-# Pterodactyl configuration
+# Panel configuration
 pterodactyl:
   # The URL of your pterodactyl panel
   # If you use Cloudflare Tunnel, you need to allow the ip in the bypass setting.
